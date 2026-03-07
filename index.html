@@ -68,10 +68,11 @@
     <script>
         // --- EXPERIMENT PARAMETERS ---
         const totalTrials = 100;
-        const coherences = [0.50, 0.65, 0.80, 0.95];
+        // Updated to standard psychophysics coherence levels
+        const coherences = [0.05, 0.15, 0.25, 0.35]; 
         const dotsPerBox = 200;
-        const dotRadius = 2.5; 
-        const speed = 3; 
+        const dotRadius = 2.5; // Creates a 5px diameter circle
+        const dx = 9; 
         const itiDuration = 2000; 
 
         // --- EXPERIMENT STATE ---
@@ -82,6 +83,7 @@
         let luckyDirection = Math.random() > 0.5 ? 'left' : 'right'; 
         let trialStartTime = 0;
         let animationFrameId;
+        let globalFrameCount = 0; 
 
         // --- GENERATE TRIALS ---
         for (let i = 0; i < coherences.length; i++) {
@@ -100,7 +102,8 @@
             for (let i = 0; i < dotsPerBox; i++) {
                 dots.push({
                     x: Math.random() * canvasWidth,
-                    y: Math.random() * canvasHeight
+                    y: Math.random() * canvasHeight,
+                    set: i % 3 
                 });
             }
             return dots;
@@ -112,20 +115,25 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#F0F0F0'; 
 
-            dots.forEach(dot => {
-                let isSignal = Math.random() < coherence;
+            let activeSet = globalFrameCount % 3;
 
-                if (isSignal) {
-                    let moveX = (targetDirection === 'right') ? speed : -speed;
-                    dot.x += moveX;
-                } else {
-                    dot.x = Math.random() * canvas.width;
-                    dot.y = Math.random() * canvas.height;
+            dots.forEach(dot => {
+                if (dot.set === activeSet) {
+                    let isSignal = Math.random() < coherence;
+
+                    if (isSignal) {
+                        let moveX = (targetDirection === 'right') ? dx : -dx;
+                        dot.x += moveX;
+                    } else {
+                        dot.x = Math.random() * canvas.width;
+                        dot.y = Math.random() * canvas.height;
+                    }
+
+                    if (dot.x > canvas.width) dot.x -= canvas.width;
+                    if (dot.x < 0) dot.x += canvas.width;
                 }
 
-                if (dot.x > canvas.width) dot.x -= canvas.width;
-                if (dot.x < 0) dot.x += canvas.width;
-
+                // explicitly draws a circle using arc()
                 ctx.beginPath();
                 ctx.arc(dot.x, dot.y, dotRadius, 0, Math.PI * 2);
                 ctx.fill();
@@ -133,6 +141,7 @@
         }
 
         function animate() {
+            globalFrameCount++;
             updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
             updateAndDrawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence);
             animationFrameId = requestAnimationFrame(animate);
