@@ -71,7 +71,7 @@
         const coherences = [0.50, 0.65, 0.80, 0.95];
         const dotsPerBox = 200;
         const dotRadius = 2.5; 
-        const speed = 3; // Pixels per frame
+        const speed = 3; 
         const itiDuration = 2000; 
 
         // --- EXPERIMENT STATE ---
@@ -113,25 +113,19 @@
             ctx.fillStyle = '#F0F0F0'; 
 
             dots.forEach(dot => {
-                // The "White Noise" RDK Algorithm
                 let isSignal = Math.random() < coherence;
 
                 if (isSignal) {
-                    // Signal dots move linearly
                     let moveX = (targetDirection === 'right') ? speed : -speed;
                     dot.x += moveX;
                 } else {
-                    // Noise dots teleport to a random location in the aperture.
-                    // This prevents false motion streaks and the "sheet" effect.
                     dot.x = Math.random() * canvas.width;
                     dot.y = Math.random() * canvas.height;
                 }
 
-                // Wrap around edges for signal dots that hit the boundary
                 if (dot.x > canvas.width) dot.x -= canvas.width;
                 if (dot.x < 0) dot.x += canvas.width;
 
-                // Draw the dot
                 ctx.beginPath();
                 ctx.arc(dot.x, dot.y, dotRadius, 0, Math.PI * 2);
                 ctx.fill();
@@ -203,3 +197,34 @@
             });
 
             currentTrialIndex++;
+            setTimeout(() => {
+                document.getElementById('feedback').style.display = 'none';
+                runTrial();
+            }, itiDuration);
+        }
+
+        function showFeedback(getsPoint) {
+            const fbDiv = document.getElementById('feedback');
+            const fbText = document.getElementById('feedback-text');
+            fbDiv.style.display = 'block';
+            
+            if (getsPoint) {
+                fbText.innerText = "Point!";
+                fbText.style.color = "green";
+            } else {
+                fbText.innerText = "No Point.";
+                fbText.style.color = "red";
+            }
+        }
+
+        function endExperiment() {
+            document.getElementById('task-area').style.display = 'none';
+            document.getElementById('feedback').style.display = 'none';
+            document.getElementById('end-screen').style.display = 'block';
+            document.getElementById('final-score').innerText = `Your total score: ${totalScore} out of 100`;
+            
+            console.log("Experiment Data:", participantData);
+        }
+    </script>
+</body>
+</html>
