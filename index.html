@@ -23,12 +23,12 @@
             padding: 20px;
         }
         .rdk-container {
-            display: none; /* Hidden until trial starts */
+            display: none; 
             flex-direction: column;
-            gap: 20px; /* Space between the two boxes */
+            gap: 20px; 
         }
         canvas {
-            background-color: #111111; /* Dark background approx 3.55 cd/m2 */
+            background-color: #111111; 
             cursor: pointer;
             box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
         }
@@ -62,7 +62,6 @@
         <h2>Experiment Complete!</h2>
         <p>Thank you for participating.</p>
         <p id="final-score"></p>
-        <p><em>(Data saving and leaderboard features will be added here later)</em></p>
     </div>
 
     <script>
@@ -71,81 +70,85 @@
         const coherences = [0.50, 0.65, 0.80, 0.95];
         const dotsPerBox = 200;
         const dotSize = 5; 
-        const speed = 2; // pixels per frame
-        const itiDuration = 2000; // 2 seconds blank screen
+        const speed = 3; // Increased speed for better RDK visual
+        const dotLifetime = 15; // Frames a dot lives before respawning
+        const itiDuration = 2000; 
 
         // --- EXPERIMENT STATE ---
         let trials = [];
         let currentTrialIndex = 0;
         let participantData = [];
         let totalScore = 0;
-        let luckyDirection = Math.random() > 0.5 ? 'left' : 'right'; // 70% reward direction
+        let luckyDirection = Math.random() > 0.5 ? 'left' : 'right'; 
         let trialStartTime = 0;
         let animationFrameId;
 
         // --- GENERATE TRIALS ---
-        // Create 25 trials for each of the 4 coherence levels
         for (let i = 0; i < coherences.length; i++) {
             for (let j = 0; j < 25; j++) {
                 trials.push({ coherence: coherences[i] });
             }
         }
-        // Shuffle trials
         trials.sort(() => Math.random() - 0.5);
 
         // --- DOT PHYSICS & DRAWING ---
         let topDots = [], bottomDots = [];
         let currentTopDir, currentBottomDir, currentCoherence;
 
-        function initDots(canvasWidth, canvasHeight) {
+        function initDots(canvasWidth, canvasHeight, coherence, targetDirection) {
             let dots = [];
+            let signalAngle = (targetDirection === 'right') ? 0 : Math.PI;
+            
             for (let i = 0; i < dotsPerBox; i++) {
+                let isSignal = Math.random() < coherence;
+                let angle = isSignal ? signalAngle : (Math.random() * 2 * Math.PI);
+                
                 dots.push({
                     x: Math.random() * canvasWidth,
-                    y: Math.random() * canvasHeight
+                    y: Math.random() * canvasHeight,
+                    angle: angle,
+                    life: Math.floor(Math.random() * dotLifetime) // Staggered start lives
                 });
             }
             return dots;
         }
 
-        function drawRDK(canvasId, dots, direction, coherence) {
+        function updateAndDrawRDK(canvasId, dots, targetDirection, coherence) {
             const canvas = document.getElementById(canvasId);
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#F0F0F0'; // Bright white dots approx 144.1 cd/m2
+            ctx.fillStyle = '#F0F0F0'; 
+
+            let signalAngle = (targetDirection === 'right') ? 0 : Math.PI;
 
             dots.forEach(dot => {
-                // Determine if this dot moves coherently this frame
-                let isCoherent = Math.random() < coherence;
-                let moveX, moveY;
+                // Move dot based on its assigned angle
+                dot.x += Math.cos(dot.angle) * speed;
+                dot.y += Math.sin(dot.angle) * speed;
+                dot.life--;
 
-                if (isCoherent) {
-                    moveX = (direction === 'right') ? speed : -speed;
-                    moveY = 0;
-                } else {
-                    // Random Brownian motion
-                    let angle = Math.random() * 2 * Math.PI;
-                    moveX = Math.cos(angle) * speed;
-                    moveY = Math.sin(angle) * speed;
+                // Check if dot died off-screen or from old age
+                let isDead = (dot.life <= 0 || dot.x > canvas.width || dot.x < 0 || dot.y > canvas.height || dot.y < 0);
+
+                if (isDead) {
+                    // Respawn the dot
+                    dot.x = Math.random() * canvas.width;
+                    dot.y = Math.random() * canvas.height;
+                    dot.life = dotLifetime;
+                    
+                    // Reassign as signal or noise for its new life
+                    let isSignal = Math.random() < coherence;
+                    dot.angle = isSignal ? signalAngle : (Math.random() * 2 * Math.PI);
                 }
 
-                dot.x += moveX;
-                dot.y += moveY;
-
-                // Wrap around edges
-                if (dot.x > canvas.width) dot.x = 0;
-                if (dot.x < 0) dot.x = canvas.width;
-                if (dot.y > canvas.height) dot.y = 0;
-                if (dot.y < 0) dot.y = canvas.height;
-
-                // Draw dot
-                ctx.fillRect(dot.x, dot.y, dotSize, dotSize);
+                // Draw the dot (centering the 5x5 square)
+                ctx.fillRect(dot.x - (dotSize/2), dot.y - (dotSize/2), dotSize, dotSize);
             });
         }
 
         function animate() {
-            drawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
-            drawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence);
+            updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
+            updateAndDrawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence);
             animationFrameId = requestAnimationFrame(animate);
         }
 
@@ -161,10 +164,8 @@
                 return;
             }
 
-            // Set up trial variables
             currentCoherence = trials[currentTrialIndex].coherence;
             
-            // Randomize which box gets which direction
             if (Math.random() > 0.5) {
                 currentTopDir = 'left';
                 currentBottomDir = 'right';
@@ -173,26 +174,22 @@
                 currentBottomDir = 'left';
             }
 
-            // Initialize dot positions
-            topDots = initDots(400, 300);
-            bottomDots = initDots(400, 300);
+            // Initialize dots with the new physics logic
+            topDots = initDots(400, 300, currentCoherence, currentTopDir);
+            bottomDots = initDots(400, 300, currentCoherence, currentBottomDir);
 
-            // Show canvas and start timer/animation
             document.getElementById('task-area').style.display = 'flex';
             trialStartTime = performance.now();
             animate();
         }
 
         function makeChoice(boxChosen) {
-            // Stop animation and record Reaction Time
             cancelAnimationFrame(animationFrameId);
             let rt = performance.now() - trialStartTime;
             document.getElementById('task-area').style.display = 'none';
 
-            // Determine chosen direction
             let chosenDirection = (boxChosen === 'top') ? currentTopDir : currentBottomDir;
 
-            // Determine Reward (70/30 split)
             let getsPoint = false;
             let rand = Math.random();
             if (chosenDirection === luckyDirection) {
@@ -201,11 +198,9 @@
                 if (rand < 0.30) getsPoint = true;
             }
 
-            // Update score and show feedback
             if (getsPoint) totalScore++;
             showFeedback(getsPoint);
 
-            // Save Data
             participantData.push({
                 trial_number: currentTrialIndex + 1,
                 coherence: currentCoherence,
@@ -216,7 +211,6 @@
                 reward_received: getsPoint ? 1 : 0
             });
 
-            // Prepare next trial after ITI
             currentTrialIndex++;
             setTimeout(() => {
                 document.getElementById('feedback').style.display = 'none';
@@ -244,7 +238,6 @@
             document.getElementById('end-screen').style.display = 'block';
             document.getElementById('final-score').innerText = `Your total score: ${totalScore} out of 100`;
             
-            // Log data to console for now so we can verify it works
             console.log("Experiment Data:", participantData);
         }
     </script>
