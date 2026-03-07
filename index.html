@@ -5,11 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visual Motion Decision Task</title>
     <style>
-        /* Modern, clean aesthetic */
         body {
             margin: 0;
             padding: 0;
-            background-color: #f4f5f7; /* Soft light gray to reduce eye strain */
+            background-color: #f4f5f7; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             color: #333333;
             display: flex;
@@ -20,7 +19,6 @@
             overflow: hidden;
         }
         
-        /* Elevated card style for text screens */
         .card {
             background-color: #ffffff;
             border-radius: 12px;
@@ -36,7 +34,6 @@
             color: #1a1a1a;
         }
 
-        /* Sleek button design */
         button {
             background-color: #0066cc;
             color: white;
@@ -54,7 +51,11 @@
             background-color: #0052a3;
         }
 
-        /* Task Area */
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
         .rdk-container {
             display: none; 
             flex-direction: column;
@@ -65,15 +66,14 @@
             background-color: #111111; 
             cursor: pointer;
             border-radius: 8px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.4); /* Stronger shadow to make apertures pop */
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4); 
             transition: transform 0.1s ease;
         }
 
         canvas:active {
-            transform: scale(0.98); /* Satisfying click feedback */
+            transform: scale(0.98); 
         }
 
-        /* Feedback styling */
         .feedback-text {
             font-size: 3rem;
             font-weight: bold;
@@ -85,6 +85,15 @@
             color: #666666;
             margin: 0;
             font-weight: 500;
+        }
+        
+        .leaderboard-stats {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            color: #555;
         }
     </style>
 </head>
@@ -98,12 +107,12 @@
         <p style="font-size: 1.1rem;">
             In this game, you will see two boxes with moving dots. On each turn, tap or click the box you believe will give you a point. One motion direction will yield points more often than the other, and this relationship will stay the same for the entire experiment. Try to get as many points as possible!
         </p>
-        <button onclick="startExperiment()">I Understand - Start Game</button>
+        <button onclick="window.startExperiment()">I Understand - Start Game</button>
     </div>
 
     <div id="task-area" class="rdk-container">
-        <canvas id="topCanvas" width="400" height="300" onclick="makeChoice('top')"></canvas>
-        <canvas id="bottomCanvas" width="400" height="300" onclick="makeChoice('bottom')"></canvas>
+        <canvas id="topCanvas" width="400" height="300" onclick="window.makeChoice('top')"></canvas>
+        <canvas id="bottomCanvas" width="400" height="300" onclick="window.makeChoice('bottom')"></canvas>
     </div>
 
     <div id="feedback" class="card" style="display: none;">
@@ -115,16 +124,39 @@
         <h2>Experiment Complete!</h2>
         <p>Thank you for participating.</p>
         <h1 id="final-score" style="color: #0066cc;"></h1>
+        <div id="leaderboard-area" class="leaderboard-stats">
+            <em>Saving data and fetching leaderboard...</em>
+        </div>
     </div>
 
-    <script>
-        // --- EXPERIMENT PARAMETERS ---
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+        // Your exact Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyDSyF7EwOHain9k2tLZw4tzIKsztj2rdrc",
+            authDomain: "rdk-bandit-task.firebaseapp.com",
+            projectId: "rdk-bandit-task",
+            storageBucket: "rdk-bandit-task.firebasestorage.app",
+            messagingSenderId: "785309089355",
+            appId: "1:785309089355:web:2fafe6ac7344cad79957ce"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // --- EXPERIMENT PARAMETERS & IDENTIFIERS ---
         const totalTrials = 100;
         const coherences = [0.05, 0.15, 0.25, 0.35]; 
         const dotsPerBox = 200;
         const dotRadius = 2.5; 
         const dx = 9; 
         const itiDuration = 2000; 
+
+        // Generate a random subject ID
+        const subjectId = 'subj_' + Math.random().toString(36).substr(2, 9);
+        const sessionStartTime = new Date().toISOString();
 
         // --- EXPERIMENT STATE ---
         let trials = [];
@@ -198,7 +230,7 @@
         }
 
         // --- FLOW CONTROL ---
-        function startExperiment() {
+        window.startExperiment = function() {
             document.getElementById('instructions').style.display = 'none';
             runTrial();
         }
@@ -227,7 +259,7 @@
             animate();
         }
 
-        function makeChoice(boxChosen) {
+        window.makeChoice = function(boxChosen) {
             cancelAnimationFrame(animationFrameId);
             let rt = performance.now() - trialStartTime;
             document.getElementById('task-area').style.display = 'none';
@@ -271,22 +303,58 @@
             
             if (getsPoint) {
                 fbText.innerText = "+1 Point!";
-                fbText.style.color = "#28a745"; // Sleek success green
+                fbText.style.color = "#28a745"; 
             } else {
                 fbText.innerText = "0 Points";
-                fbText.style.color = "#dc3545"; // Sleek error red
+                fbText.style.color = "#dc3545"; 
             }
             
             scoreText.innerText = `Total Score: ${totalScore}`;
         }
 
-        function endExperiment() {
+        async function endExperiment() {
             document.getElementById('task-area').style.display = 'none';
             document.getElementById('feedback').style.display = 'none';
             document.getElementById('end-screen').style.display = 'block';
             document.getElementById('final-score').innerText = `${totalScore} / 100`;
-            
-            console.log("Experiment Data:", participantData);
+
+            const finalPayload = {
+                subject_id: subjectId,
+                session_start: sessionStartTime,
+                session_end: new Date().toISOString(),
+                lucky_direction: luckyDirection,
+                total_score: totalScore,
+                trials: participantData
+            };
+
+            try {
+                // 1. Save data to Firebase
+                await addDoc(collection(db, "experiment_data"), finalPayload);
+                
+                // 2. Fetch all scores for the Leaderboard
+                const querySnapshot = await getDocs(collection(db, "experiment_data"));
+                let allScores = [];
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.total_score !== undefined) {
+                        allScores.push(data.total_score);
+                    }
+                });
+
+                // 3. Calculate Average
+                if (allScores.length > 0) {
+                    const sum = allScores.reduce((a, b) => a + b, 0);
+                    const avg = Math.round(sum / allScores.length);
+                    document.getElementById('leaderboard-area').innerHTML = `
+                        <strong>Community Stats</strong><br>
+                        Average score of all participants: <strong>${avg} / 100</strong><br>
+                        <em>Total participants so far: ${allScores.length}</em>
+                    `;
+                }
+            } catch (e) {
+                console.error("Error with database:", e);
+                document.getElementById('leaderboard-area').innerText = "Data saved locally. Could not connect to leaderboard.";
+            }
         }
     </script>
 </body>
