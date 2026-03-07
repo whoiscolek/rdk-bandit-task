@@ -31,6 +31,7 @@
             background-color: #111111; 
             cursor: pointer;
             box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+            border-radius: 4px; /* Slight rounding on the aperture boxes */
         }
         button {
             padding: 10px 20px;
@@ -69,9 +70,8 @@
         const totalTrials = 100;
         const coherences = [0.50, 0.65, 0.80, 0.95];
         const dotsPerBox = 200;
-        const dotSize = 5; 
-        const speed = 3; // Increased speed for better RDK visual
-        const dotLifetime = 15; // Frames a dot lives before respawning
+        const dotRadius = 2.5; // Swapped to radius for circles instead of squares
+        const speed = 2.5; 
         const itiDuration = 2000; 
 
         // --- EXPERIMENT STATE ---
@@ -95,19 +95,12 @@
         let topDots = [], bottomDots = [];
         let currentTopDir, currentBottomDir, currentCoherence;
 
-        function initDots(canvasWidth, canvasHeight, coherence, targetDirection) {
+        function initDots(canvasWidth, canvasHeight) {
             let dots = [];
-            let signalAngle = (targetDirection === 'right') ? 0 : Math.PI;
-            
             for (let i = 0; i < dotsPerBox; i++) {
-                let isSignal = Math.random() < coherence;
-                let angle = isSignal ? signalAngle : (Math.random() * 2 * Math.PI);
-                
                 dots.push({
                     x: Math.random() * canvasWidth,
-                    y: Math.random() * canvasHeight,
-                    angle: angle,
-                    life: Math.floor(Math.random() * dotLifetime) // Staggered start lives
+                    y: Math.random() * canvasHeight
                 });
             }
             return dots;
@@ -119,30 +112,32 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#F0F0F0'; 
 
-            let signalAngle = (targetDirection === 'right') ? 0 : Math.PI;
-
             dots.forEach(dot => {
-                // Move dot based on its assigned angle
-                dot.x += Math.cos(dot.angle) * speed;
-                dot.y += Math.sin(dot.angle) * speed;
-                dot.life--;
+                // Determine movement FOR THIS SPECIFIC FRAME only
+                let isSignal = Math.random() < coherence;
 
-                // Check if dot died off-screen or from old age
-                let isDead = (dot.life <= 0 || dot.x > canvas.width || dot.x < 0 || dot.y > canvas.height || dot.y < 0);
-
-                if (isDead) {
-                    // Respawn the dot
-                    dot.x = Math.random() * canvas.width;
-                    dot.y = Math.random() * canvas.height;
-                    dot.life = dotLifetime;
-                    
-                    // Reassign as signal or noise for its new life
-                    let isSignal = Math.random() < coherence;
-                    dot.angle = isSignal ? signalAngle : (Math.random() * 2 * Math.PI);
+                if (isSignal) {
+                    // Move linearly in the signal direction
+                    let moveX = (targetDirection === 'right') ? speed : -speed;
+                    dot.x += moveX;
+                } else {
+                    // Brownian motion: move at a random angle, but at the exact same speed
+                    // This prevents the brain from separating signal/noise by velocity
+                    let angle = Math.random() * 2 * Math.PI;
+                    dot.x += Math.cos(angle) * speed;
+                    dot.y += Math.sin(angle) * speed;
                 }
 
-                // Draw the dot (centering the 5x5 square)
-                ctx.fillRect(dot.x - (dotSize/2), dot.y - (dotSize/2), dotSize, dotSize);
+                // Wrap around edges to create a continuous flow
+                if (dot.x > canvas.width) dot.x = 0;
+                if (dot.x < 0) dot.x = canvas.width;
+                if (dot.y > canvas.height) dot.y = 0;
+                if (dot.y < 0) dot.y = canvas.height;
+
+                // Draw the dot as a smooth circle
+                ctx.beginPath();
+                ctx.arc(dot.x, dot.y, dotRadius, 0, Math.PI * 2);
+                ctx.fill();
             });
         }
 
@@ -174,9 +169,9 @@
                 currentBottomDir = 'left';
             }
 
-            // Initialize dots with the new physics logic
-            topDots = initDots(400, 300, currentCoherence, currentTopDir);
-            bottomDots = initDots(400, 300, currentCoherence, currentBottomDir);
+            // Initialize fresh random dot positions for the new trial
+            topDots = initDots(400, 300);
+            bottomDots = initDots(400, 300);
 
             document.getElementById('task-area').style.display = 'flex';
             trialStartTime = performance.now();
