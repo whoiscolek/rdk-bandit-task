@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual Motion Decision Task</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #instructions, #feedback, #end-screen {
+            text-align: center;
+            max-width: 600px;
+            padding: 20px;
+        }
+        .rdk-container {
+            display: none; /* Hidden until trial starts */
+            flex-direction: column;
+            gap: 20px; /* Space between the two boxes */
+        }
+        canvas {
+            background-color: #111111; /* Dark background approx 3.55 cd/m2 */
+            cursor: pointer;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 18px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="instructions">
+        <h2>Welcome to the Experiment</h2>
+        <p><strong>Disclaimer:</strong> This experiment has not been reviewed by an Institutional Review Board (IRB). As such, your data will not be reported in any formal study.</p>
+        <p>In this game, you will see two boxes with moving dots. On each turn, tap or click the box you believe will give you a point. Try to get as many points as possible!</p>
+        <button onclick="startExperiment()">I Understand - Start Game</button>
+    </div>
+
+    <div id="task-area" class="rdk-container">
+        <canvas id="topCanvas" width="400" height="300" onclick="makeChoice('top')"></canvas>
+        <canvas id="bottomCanvas" width="400" height="300" onclick="makeChoice('bottom')"></canvas>
+    </div>
+
+    <div id="feedback" style="display: none;">
+        <h1 id="feedback-text"></h1>
+    </div>
+
+    <div id="end-screen" style="display: none;">
+        <h2>Experiment Complete!</h2>
+        <p>Thank you for participating.</p>
+        <p id="final-score"></p>
+        <p><em>(Data saving and leaderboard features will be added here later)</em></p>
+    </div>
+
+    <script>
+        // --- EXPERIMENT PARAMETERS ---
+        const totalTrials = 100;
+        const coherences = [0.50, 0.65, 0.80, 0.95];
+        const dotsPerBox = 200;
+        const dotSize = 5; 
+        const speed = 2; // pixels per frame
+        const itiDuration = 2000; // 2 seconds blank screen
+
+        // --- EXPERIMENT STATE ---
+        let trials = [];
+        let currentTrialIndex = 0;
+        let participantData = [];
+        let totalScore = 0;
+        let luckyDirection = Math.random() > 0.5 ? 'left' : 'right'; // 70% reward direction
+        let trialStartTime = 0;
+        let animationFrameId;
+
+        // --- GENERATE TRIALS ---
+        // Create 25 trials for each of the 4 coherence levels
+        for (let i = 0; i < coherences.length; i++) {
+            for (let j = 0; j < 25; j++) {
+                trials.push({ coherence: coherences[i] });
+            }
+        }
+        // Shuffle trials
+        trials.sort(() => Math.random() - 0.5);
+
+        // --- DOT PHYSICS & DRAWING ---
+        let topDots = [], bottomDots = [];
+        let currentTopDir, currentBottomDir, currentCoherence;
+
+        function initDots(canvasWidth, canvasHeight) {
+            let dots = [];
+            for (let i = 0; i < dotsPerBox; i++) {
+                dots.push({
+                    x: Math.random() * canvasWidth,
+                    y: Math.random() * canvasHeight
+                });
+            }
+            return dots;
+        }
+
+        function drawRDK(canvasId, dots, direction, coherence) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#F0F0F0'; // Bright white dots approx 144.1 cd/m2
+
+            dots.forEach(dot => {
+                // Determine if this dot moves coherently this frame
+                let isCoherent = Math.random() < coherence;
+                let moveX, moveY;
+
+                if (isCoherent) {
+                    moveX = (direction === 'right') ? speed : -speed;
+                    moveY = 0;
+                } else {
+                    // Random Brownian motion
+                    let angle = Math.random() * 2 * Math.PI;
+                    moveX = Math.cos(angle) * speed;
+                    moveY = Math.sin(angle) * speed;
+                }
+
+                dot.x += moveX;
+                dot.y += moveY;
+
+                // Wrap around edges
+                if (dot.x > canvas.width) dot.x = 0;
+                if (dot.x < 0) dot.x = canvas.width;
+                if (dot.y > canvas.height) dot.y = 0;
+                if (dot.y < 0) dot.y = canvas.height;
+
+                // Draw dot
+                ctx.fillRect(dot.x, dot.y, dotSize, dotSize);
+            });
+        }
+
+        function animate() {
+            drawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
+            drawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence);
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // --- FLOW CONTROL ---
+        function startExperiment() {
+            document.getElementById('instructions').style.display = 'none';
+            runTrial();
+        }
+
+        function runTrial() {
+            if (currentTrialIndex >= totalTrials) {
+                endExperiment();
+                return;
+            }
+
+            // Set up trial variables
+            currentCoherence = trials[currentTrialIndex].coherence;
+            
+            // Randomize which box gets which direction
+            if (Math.random() > 0.5) {
+                currentTopDir = 'left';
+                currentBottomDir = 'right';
+            } else {
+                currentTopDir = 'right';
+                currentBottomDir = 'left';
+            }
+
+            // Initialize dot positions
+            topDots = initDots(400, 300);
+            bottomDots = initDots(400, 300);
+
+            // Show canvas and start timer/animation
+            document.getElementById('task-area').style.display = 'flex';
+            trialStartTime = performance.now();
+            animate();
+        }
+
+        function makeChoice(boxChosen) {
+            // Stop animation and record Reaction Time
+            cancelAnimationFrame(animationFrameId);
+            let rt = performance.now() - trialStartTime;
+            document.getElementById('task-area').style.display = 'none';
+
+            // Determine chosen direction
+            let chosenDirection = (boxChosen === 'top') ? currentTopDir : currentBottomDir;
+
+            // Determine Reward (70/30 split)
+            let getsPoint = false;
+            let rand = Math.random();
+            if (chosenDirection === luckyDirection) {
+                if (rand < 0.70) getsPoint = true;
+            } else {
+                if (rand < 0.30) getsPoint = true;
+            }
+
+            // Update score and show feedback
+            if (getsPoint) totalScore++;
+            showFeedback(getsPoint);
+
+            // Save Data
+            participantData.push({
+                trial_number: currentTrialIndex + 1,
+                coherence: currentCoherence,
+                top_direction: currentTopDir,
+                bottom_direction: currentBottomDir,
+                chosen_box: boxChosen,
+                rt_ms: Math.round(rt),
+                reward_received: getsPoint ? 1 : 0
+            });
+
+            // Prepare next trial after ITI
+            currentTrialIndex++;
+            setTimeout(() => {
+                document.getElementById('feedback').style.display = 'none';
+                runTrial();
+            }, itiDuration);
+        }
+
+        function showFeedback(getsPoint) {
+            const fbDiv = document.getElementById('feedback');
+            const fbText = document.getElementById('feedback-text');
+            fbDiv.style.display = 'block';
+            
+            if (getsPoint) {
+                fbText.innerText = "Point!";
+                fbText.style.color = "green";
+            } else {
+                fbText.innerText = "No Point.";
+                fbText.style.color = "red";
+            }
+        }
+
+        function endExperiment() {
+            document.getElementById('task-area').style.display = 'none';
+            document.getElementById('feedback').style.display = 'none';
+            document.getElementById('end-screen').style.display = 'block';
+            document.getElementById('final-score').innerText = `Your total score: ${totalScore} out of 100`;
+            
+            // Log data to console for now so we can verify it works
+            console.log("Experiment Data:", participantData);
+        }
+    </script>
+</body>
+</html>
