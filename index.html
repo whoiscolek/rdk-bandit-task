@@ -235,7 +235,7 @@
         let trialStartTime = 0;
         let animationFrameId;
         let globalFrameCount = 0; 
-        let databaseCollection = "experiment_data"; // Defaults to real data collection
+        let databaseCollection = "experiment_data"; 
 
         // --- GENERATE TRIALS ---
         for (let i = 0; i < coherences.length; i++) {
@@ -293,7 +293,6 @@
         // --- FETCH LEADERBOARD ---
         async function loadLeaderboard() {
             try {
-                // The leaderboard ONLY ever pulls from the "experiment_data" collection.
                 const querySnapshot = await getDocs(collection(db, "experiment_data"));
                 let validScores = [];
                 
@@ -306,7 +305,7 @@
 
                 const lbContent = document.getElementById('lb-content');
                 if (validScores.length > 0) {
-                    validScores.sort((a, b) => b - a); // Sort High to Low
+                    validScores.sort((a, b) => b - a); 
                     const sum = validScores.reduce((a, b) => a + b, 0);
                     const avg = Math.round(sum / validScores.length);
                     const topScore = validScores[0];
@@ -325,19 +324,78 @@
             }
         }
 
+        // --- ADMIN: DOWNLOAD CSV ---
+        async function downloadCSV() {
+            const instructionsDiv = document.getElementById('instructions');
+            instructionsDiv.innerHTML = "<h2>Fetching Data...</h2><p>Please wait while we generate your CSV.</p>";
+            
+            try {
+                const querySnapshot = await getDocs(collection(db, "experiment_data"));
+                
+                // Set up the CSV Headers
+                let csvContent = "subject_id,lucky_direction,total_score,trial_number,coherence,top_direction,bottom_direction,chosen_box,rt_ms,reward_received\n";
+
+                let participantCount = 0;
+
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    participantCount++;
+                    
+                    const subj = data.subject_id || "N/A";
+                    const lucky = data.lucky_direction || "N/A";
+                    const total = data.total_score || 0;
+
+                    // Flatten each trial into its own row
+                    if (data.trials && Array.isArray(data.trials)) {
+                        data.trials.forEach(t => {
+                            let row = [
+                                subj, lucky, total,
+                                t.trial_number, t.coherence, t.top_direction, t.bottom_direction,
+                                t.chosen_box, t.rt_ms, t.reward_received
+                            ];
+                            csvContent += row.join(",") + "\n";
+                        });
+                    }
+                });
+
+                // Create the downloadable file
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", "rdk_experiment_data.csv");
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                instructionsDiv.innerHTML = `<h2>Success!</h2><p>Downloaded ${participantCount} participants.</p><p>Refresh the page to return to the start screen.</p>`;
+            } catch (e) {
+                console.error("Error downloading CSV:", e);
+                instructionsDiv.innerHTML = "<h2>Error</h2><p>Could not download data. Check the console for details.</p>";
+            }
+        }
+
         // --- FLOW CONTROL ---
         window.startExperiment = function() {
             const passInput = document.getElementById('researcher-pass').value.trim().toLowerCase();
+            
+            // ADMIN OVERRIDE: Download CSV directly
+            if (passInput === 'export') {
+                downloadCSV();
+                return; // Stop the experiment from starting
+            }
+            
             const randomNum = Math.floor(Math.random() * 900) + 100; 
             
             // Route the data based on the password
             if (passInput === 'cole') {
                 subjectId = 'test' + randomNum;
-                databaseCollection = "test_data"; // Saves to completely isolated folder
+                databaseCollection = "test_data"; 
                 console.log("TEST MODE ACTIVATED: Data routing to 'test_data'");
             } else {
                 subjectId = 'sub' + randomNum;
-                databaseCollection = "experiment_data"; // Saves to main live folder
+                databaseCollection = "experiment_data"; 
             }
             
             sessionStartTime = new Date().toISOString();
@@ -443,11 +501,9 @@
             };
 
             try {
-                // Dynamically saves to either 'test_data' or 'experiment_data'
                 await addDoc(collection(db, databaseCollection), finalPayload);
                 document.getElementById('save-status').innerHTML = "<strong>Data successfully saved.</strong> You may close this window.";
                 
-                // Only refresh the leaderboard if it was a real participant
                 if(databaseCollection === "experiment_data") {
                     loadLeaderboard(); 
                 }
