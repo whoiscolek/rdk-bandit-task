@@ -89,6 +89,8 @@
             flex-direction: column;
             align-items: center;
             width: 100%;
+            /* Ensures the left column doesn't squish its contents */
+            min-width: 450px; 
         }
 
         .right-col {
@@ -124,8 +126,11 @@
             border-radius: 8px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.4); 
             transition: transform 0.1s ease;
-            max-width: 90vw; 
-            height: auto;
+            /* OPTION A: STRICTLY LOCKED DIMENSIONS */
+            width: 400px;
+            height: 300px;
+            min-width: 400px;
+            min-height: 300px;
         }
 
         canvas:active {
@@ -484,7 +489,6 @@
             participantAge = ageSelect;
             participantGender = genderSelect;
 
-            // Transition to the Reminder Screen
             document.getElementById('survey-screen').style.display = 'none';
             document.getElementById('reminder-screen').style.display = 'block';
         }
