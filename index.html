@@ -119,11 +119,10 @@
             align-items: center;
         }
 
-        /* Notice canvas is now a square to perfectly hold a circular aperture */
         canvas {
             background-color: #111111; 
             cursor: pointer;
-            border-radius: 50%; /* Makes the physical box a circle */
+            border-radius: 50%; /* Perfect circle clipping mask */
             box-shadow: 0 10px 30px rgba(0,0,0,0.4); 
             transition: transform 0.1s ease;
             width: 350px;
@@ -281,10 +280,9 @@
         const totalTrials = 100;
         const coherences = [0.05, 0.15, 0.25, 0.35]; 
         const dotsPerBox = 200;
-        const dotRadius = 2.5; 
-        const dx = 9; 
+        const dotRadius = 1.5; // Slightly smaller dots for denser snow effect
+        const dx = 3.5;        // Shorter, smoother steps
         const itiDuration = 2000; 
-        const fpsInterval = 1000 / 60; // STRICT 60Hz TIMING
 
         // --- EXPERIMENT STATE ---
         let subjectId = '';
@@ -298,9 +296,7 @@
         let luckyDirection = Math.random() > 0.5 ? 'left' : 'right'; 
         let trialStartTime = 0;
         let animationFrameId;
-        let globalFrameCount = 0; 
         let databaseCollection = "experiment_data"; 
-        let then = 0; // For strict timing
 
         // --- GENERATE TRIALS ---
         for (let i = 0; i < coherences.length; i++) {
@@ -316,22 +312,27 @@
 
         function initDots(canvasWidth, canvasHeight) {
             let dots = [];
+            let currentTime = performance.now();
             for (let i = 0; i < dotsPerBox; i++) {
-                dots.push({ x: Math.random() * canvasWidth, y: Math.random() * canvasHeight, set: i % 3 });
+                dots.push({ 
+                    x: Math.random() * canvasWidth, 
+                    y: Math.random() * canvasHeight,
+                    // Smoothly stagger the updates over the next 50ms
+                    nextUpdateTime: currentTime + (Math.random() * 50) 
+                });
             }
             return dots;
         }
 
-        function updateAndDrawRDK(canvasId, dots, targetDirection, coherence) {
+        function updateAndDrawRDK(canvasId, dots, targetDirection, coherence, now) {
             const canvas = document.getElementById(canvasId);
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#F0F0F0'; 
 
-            let activeSet = globalFrameCount % 3;
-
             dots.forEach(dot => {
-                if (dot.set === activeSet) {
+                // If it is this dot's specific time to jump (every 50ms)
+                if (now >= dot.nextUpdateTime) {
                     let isSignal = Math.random() < coherence;
                     if (isSignal) {
                         dot.x += (targetDirection === 'right') ? dx : -dx;
@@ -340,34 +341,30 @@
                         dot.x = Math.random() * canvas.width;
                         dot.y = Math.random() * canvas.height;
                     }
+                    
                     // Wrap horizontally
                     if (dot.x > canvas.width) dot.x -= canvas.width;
                     if (dot.x < 0) dot.x += canvas.width;
+
+                    // Set the alarm for its next jump
+                    dot.nextUpdateTime = now + 50;
                 }
                 
-                // Draw circle
                 ctx.beginPath();
                 ctx.arc(dot.x, dot.y, dotRadius, 0, Math.PI * 2);
                 ctx.fill();
             });
         }
 
-        // The STRICT TIMING LOOP
+        // The Smooth Asynchronous Loop
         function animate(now) {
-            animationFrameId = requestAnimationFrame(animate);
+            // Guarantee 'now' exists on the very first frame
+            if (!now) now = performance.now();
             
-            // Calculate time since last frame
-            const elapsed = now - then;
-
-            // If enough time has passed, draw the next frame
-            if (elapsed > fpsInterval) {
-                // Adjust 'then' for next frame, correcting for slight overshoots
-                then = now - (elapsed % fpsInterval);
-
-                globalFrameCount++;
-                updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
-                updateAndDrawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence);
-            }
+            updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence, now);
+            updateAndDrawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence, now);
+            
+            animationFrameId = requestAnimationFrame(animate);
         }
 
         // --- FETCH LEADERBOARD ---
@@ -528,11 +525,7 @@
 
             document.getElementById('task-area').style.display = 'flex';
             
-            // Set precise timing anchor for the start of the trial
-            then = performance.now();
-            trialStartTime = then;
-            
-            // Pass the current timestamp into the animation loop to kick it off
+            trialStartTime = performance.now();
             animationFrameId = requestAnimationFrame(animate);
         }
 
