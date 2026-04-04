@@ -119,10 +119,11 @@
             align-items: center;
         }
 
+        /* Removed the fake CSS circle. The math handles it now. */
         canvas {
             background-color: #111111; 
             cursor: pointer;
-            border-radius: 50%; /* Perfect circle clipping mask */
+            border-radius: 50%; /* Kept only for the black background shape */
             box-shadow: 0 10px 30px rgba(0,0,0,0.4); 
             transition: transform 0.1s ease;
             width: 350px;
@@ -280,9 +281,14 @@
         const totalTrials = 100;
         const coherences = [0.05, 0.15, 0.25, 0.35]; 
         const dotsPerBox = 200;
-        const dotRadius = 1.5; // Slightly smaller dots for denser snow effect
-        const dx = 3.5;        // Shorter, smoother steps
+        const dotRadius = 2; // Clean, visible dots
+        const dx = 5; // Step size per update
         const itiDuration = 2000; 
+
+        // RDK Geometry Constants
+        const apertureRadius = 175; // Half of 350px canvas
+        const centerX = 175;
+        const centerY = 175;
 
         // --- EXPERIMENT STATE ---
         let subjectId = '';
@@ -296,6 +302,7 @@
         let luckyDirection = Math.random() > 0.5 ? 'left' : 'right'; 
         let trialStartTime = 0;
         let animationFrameId;
+        let globalFrameCount = 0; 
         let databaseCollection = "experiment_data"; 
 
         // --- GENERATE TRIALS ---
@@ -306,64 +313,83 @@
         }
         trials.sort(() => Math.random() - 0.5);
 
+        // --- TRUE CIRCULAR MATH HELPER ---
+        // Generates a random coordinate strictly inside a circle
+        function getRandomDotInCircle() {
+            let r = apertureRadius * Math.sqrt(Math.random());
+            let theta = Math.random() * 2 * Math.PI;
+            return {
+                x: centerX + r * Math.cos(theta),
+                y: centerY + r * Math.sin(theta)
+            };
+        }
+
         // --- DOT PHYSICS & DRAWING ---
         let topDots = [], bottomDots = [];
         let currentTopDir, currentBottomDir, currentCoherence;
 
-        function initDots(canvasWidth, canvasHeight) {
+        function initDots() {
             let dots = [];
-            let currentTime = performance.now();
             for (let i = 0; i < dotsPerBox; i++) {
+                let pos = getRandomDotInCircle();
                 dots.push({ 
-                    x: Math.random() * canvasWidth, 
-                    y: Math.random() * canvasHeight,
-                    // Smoothly stagger the updates over the next 50ms
-                    nextUpdateTime: currentTime + (Math.random() * 50) 
+                    x: pos.x, 
+                    y: pos.y, 
+                    set: i % 3 // Assigns dot to 1 of 3 interleaved frames
                 });
             }
             return dots;
         }
 
-        function updateAndDrawRDK(canvasId, dots, targetDirection, coherence, now) {
+        function updateAndDrawRDK(canvasId, dots, targetDirection, coherence) {
             const canvas = document.getElementById(canvasId);
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#F0F0F0'; 
 
-            dots.forEach(dot => {
-                // If it is this dot's specific time to jump (every 50ms)
-                if (now >= dot.nextUpdateTime) {
-                    let isSignal = Math.random() < coherence;
-                    if (isSignal) {
-                        dot.x += (targetDirection === 'right') ? dx : -dx;
-                    } else {
-                        // White noise teleportation
-                        dot.x = Math.random() * canvas.width;
-                        dot.y = Math.random() * canvas.height;
-                    }
-                    
-                    // Wrap horizontally
-                    if (dot.x > canvas.width) dot.x -= canvas.width;
-                    if (dot.x < 0) dot.x += canvas.width;
+            let activeSet = globalFrameCount % 3;
 
-                    // Set the alarm for its next jump
-                    dot.nextUpdateTime = now + 50;
+            dots.forEach(dot => {
+                // Only move dots belonging to the active frame (classic 3-interleaved method)
+                if (dot.set === activeSet) {
+                    let isSignal = Math.random() < coherence;
+                    
+                    if (isSignal) {
+                        // Move straight left or right
+                        dot.x += (targetDirection === 'right') ? dx : -dx;
+                        
+                        // Circle Boundary Check: If it leaves the circle, wrap it to the opposite side
+                        let distFromCenter = Math.sqrt(Math.pow(dot.x - centerX, 2) + Math.pow(dot.y - centerY, 2));
+                        if (distFromCenter > apertureRadius) {
+                            // Find the chord length at this Y position
+                            let dy = dot.y - centerY;
+                            let chordHalfLength = Math.sqrt(Math.pow(apertureRadius, 2) - Math.pow(dy, 2));
+                            if (targetDirection === 'right') {
+                                dot.x = centerX - chordHalfLength; // Wrap to left edge
+                            } else {
+                                dot.x = centerX + chordHalfLength; // Wrap to right edge
+                            }
+                        }
+                    } else {
+                        // WHITE NOISE: Teleport to a completely new random location INSIDE the circle
+                        let newPos = getRandomDotInCircle();
+                        dot.x = newPos.x;
+                        dot.y = newPos.y;
+                    }
                 }
                 
+                // Draw all dots (moving or paused) every frame
                 ctx.beginPath();
                 ctx.arc(dot.x, dot.y, dotRadius, 0, Math.PI * 2);
                 ctx.fill();
             });
         }
 
-        // The Smooth Asynchronous Loop
-        function animate(now) {
-            // Guarantee 'now' exists on the very first frame
-            if (!now) now = performance.now();
-            
-            updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence, now);
-            updateAndDrawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence, now);
-            
+        // Buttery Smooth Interleaved Rendering
+        function animate() {
+            globalFrameCount++;
+            updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
+            updateAndDrawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence);
             animationFrameId = requestAnimationFrame(animate);
         }
 
@@ -520,8 +546,8 @@
                 currentBottomDir = 'left';
             }
 
-            topDots = initDots(350, 350);
-            bottomDots = initDots(350, 350);
+            topDots = initDots();
+            bottomDots = initDots();
 
             document.getElementById('task-area').style.display = 'flex';
             
