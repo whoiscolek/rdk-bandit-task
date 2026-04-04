@@ -89,7 +89,6 @@
             flex-direction: column;
             align-items: center;
             width: 100%;
-            /* Ensures the left column doesn't squish its contents */
             min-width: 450px; 
         }
 
@@ -120,17 +119,17 @@
             align-items: center;
         }
 
+        /* Notice canvas is now a square to perfectly hold a circular aperture */
         canvas {
             background-color: #111111; 
             cursor: pointer;
-            border-radius: 8px;
+            border-radius: 50%; /* Makes the physical box a circle */
             box-shadow: 0 10px 30px rgba(0,0,0,0.4); 
             transition: transform 0.1s ease;
-            /* OPTION A: STRICTLY LOCKED DIMENSIONS */
-            width: 400px;
-            height: 300px;
-            min-width: 400px;
-            min-height: 300px;
+            width: 350px;
+            height: 350px;
+            min-width: 350px;
+            min-height: 350px;
         }
 
         canvas:active {
@@ -192,7 +191,6 @@
         <p style="font-size: 1.1rem;">
             In this game, you will see two boxes with moving dots. On each turn, tap or click the box you believe will give you a point. One motion direction will yield points more often than the other, and this relationship will stay the same for the entire experiment. Try to get as many points as possible!
         </p>
-        
         <input type="password" id="researcher-pass" class="password-input" placeholder="Subject ID / Test Pass (Optional)">
         <button onclick="window.startExperiment()">I Understand - Start Game</button>
     </div>
@@ -200,7 +198,6 @@
     <div id="survey-screen" class="card" style="display: none;">
         <h2>A few quick questions</h2>
         <p>Before we begin, please provide the following information:</p>
-        
         <div class="survey-group">
             <label><strong>What age group are you in?</strong></label>
             <select id="age-input" class="survey-select">
@@ -211,7 +208,6 @@
                 <option value=">50">&gt;50</option>
             </select>
         </div>
-
         <div class="survey-group">
             <label><strong>What gender do you identify as?</strong></label>
             <select id="gender-input" class="survey-select">
@@ -222,7 +218,6 @@
                 <option value="Other">Other</option>
             </select>
         </div>
-
         <p id="survey-error">Please select an option for both questions to continue.</p>
         <button onclick="window.submitSurvey()">Submit & Next</button>
     </div>
@@ -230,8 +225,8 @@
     <div id="reminder-screen" class="card" style="display: none;">
         <h2>Quick Reminder</h2>
         <ul>
-            <li>You will see two boxes with moving dots on the screen.</li>
-            <li>Tap or click the box you believe will give you a point.</li>
+            <li>You will see two circles with moving dots on the screen.</li>
+            <li>Tap or click the circle you believe will give you a point.</li>
             <li><strong>One motion direction will yield points more often than the other.</strong></li>
             <li>This relationship stays exactly the same for the entire experiment.</li>
         </ul>
@@ -239,18 +234,15 @@
     </div>
 
     <div id="main-ui" class="layout-wrapper" style="display: none;">
-        
         <div class="left-col">
             <div id="task-area" class="rdk-container">
-                <canvas id="topCanvas" width="400" height="300" onclick="window.makeChoice('top')"></canvas>
-                <canvas id="bottomCanvas" width="400" height="300" onclick="window.makeChoice('bottom')"></canvas>
+                <canvas id="topCanvas" width="350" height="350" onclick="window.makeChoice('top')"></canvas>
+                <canvas id="bottomCanvas" width="350" height="350" onclick="window.makeChoice('bottom')"></canvas>
             </div>
-
             <div id="feedback" class="card" style="display: none; width: 100%;">
                 <h1 id="feedback-text" class="feedback-text"></h1>
                 <p id="running-score" class="score-text"></p>
             </div>
-
             <div id="end-screen" class="card" style="display: none; width: 100%;">
                 <h2>Experiment Complete!</h2>
                 <p>Thank you for participating.</p>
@@ -258,7 +250,6 @@
                 <p id="save-status"><em>Saving your data securely...</em></p>
             </div>
         </div>
-
         <div class="right-col card">
             <h3>Live Leaderboard</h3>
             <div id="lb-content" class="live-stats">
@@ -268,7 +259,6 @@
                 Your Score: <span id="side-score">0</span>
             </div>
         </div>
-
     </div>
 
     <script type="module">
@@ -294,6 +284,7 @@
         const dotRadius = 2.5; 
         const dx = 9; 
         const itiDuration = 2000; 
+        const fpsInterval = 1000 / 60; // STRICT 60Hz TIMING
 
         // --- EXPERIMENT STATE ---
         let subjectId = '';
@@ -309,6 +300,7 @@
         let animationFrameId;
         let globalFrameCount = 0; 
         let databaseCollection = "experiment_data"; 
+        let then = 0; // For strict timing
 
         // --- GENERATE TRIALS ---
         for (let i = 0; i < coherences.length; i++) {
@@ -344,23 +336,38 @@
                     if (isSignal) {
                         dot.x += (targetDirection === 'right') ? dx : -dx;
                     } else {
+                        // White noise teleportation
                         dot.x = Math.random() * canvas.width;
                         dot.y = Math.random() * canvas.height;
                     }
+                    // Wrap horizontally
                     if (dot.x > canvas.width) dot.x -= canvas.width;
                     if (dot.x < 0) dot.x += canvas.width;
                 }
+                
+                // Draw circle
                 ctx.beginPath();
                 ctx.arc(dot.x, dot.y, dotRadius, 0, Math.PI * 2);
                 ctx.fill();
             });
         }
 
-        function animate() {
-            globalFrameCount++;
-            updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
-            updateAndDrawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence);
+        // The STRICT TIMING LOOP
+        function animate(now) {
             animationFrameId = requestAnimationFrame(animate);
+            
+            // Calculate time since last frame
+            const elapsed = now - then;
+
+            // If enough time has passed, draw the next frame
+            if (elapsed > fpsInterval) {
+                // Adjust 'then' for next frame, correcting for slight overshoots
+                then = now - (elapsed % fpsInterval);
+
+                globalFrameCount++;
+                updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
+                updateAndDrawRDK('bottomCanvas', bottomDots, currentBottomDir, currentCoherence);
+            }
         }
 
         // --- FETCH LEADERBOARD ---
@@ -474,7 +481,6 @@
             document.getElementById('survey-screen').style.display = 'block';
         }
 
-        // --- SURVEY HANDLING ---
         window.submitSurvey = function() {
             const ageSelect = document.getElementById('age-input').value;
             const genderSelect = document.getElementById('gender-input').value;
@@ -493,7 +499,6 @@
             document.getElementById('reminder-screen').style.display = 'block';
         }
 
-        // --- START TASK ---
         window.startTask = function() {
             document.getElementById('reminder-screen').style.display = 'none';
             document.getElementById('main-ui').style.display = 'flex';
@@ -518,12 +523,17 @@
                 currentBottomDir = 'left';
             }
 
-            topDots = initDots(400, 300);
-            bottomDots = initDots(400, 300);
+            topDots = initDots(350, 350);
+            bottomDots = initDots(350, 350);
 
             document.getElementById('task-area').style.display = 'flex';
-            trialStartTime = performance.now();
-            animate();
+            
+            // Set precise timing anchor for the start of the trial
+            then = performance.now();
+            trialStartTime = then;
+            
+            // Pass the current timestamp into the animation loop to kick it off
+            animationFrameId = requestAnimationFrame(animate);
         }
 
         window.makeChoice = function(boxChosen) {
