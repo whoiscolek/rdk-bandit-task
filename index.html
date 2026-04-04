@@ -35,12 +35,18 @@
             color: #1a1a1a;
         }
 
-        .password-input {
-            margin-top: 20px;
-            padding: 10px;
+        .password-input, .survey-select {
+            margin-top: 10px;
+            padding: 12px;
             border: 1px solid #ccc;
             border-radius: 6px;
-            font-size: 14px;
+            font-size: 16px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .password-input {
+            margin-top: 20px;
             width: 80%;
             max-width: 250px;
             text-align: center;
@@ -150,6 +156,25 @@
             padding-bottom: 10px;
             border-bottom: 1px solid #eee;
         }
+
+        .survey-group {
+            text-align: left;
+            margin-top: 20px;
+        }
+        
+        #survey-error {
+            color: #dc3545;
+            margin-top: 15px;
+            font-weight: bold;
+            display: none;
+        }
+
+        ul {
+            text-align: left;
+            font-size: 1.1rem;
+            line-height: 1.8;
+            color: #444;
+        }
     </style>
 </head>
 <body>
@@ -165,6 +190,47 @@
         
         <input type="password" id="researcher-pass" class="password-input" placeholder="Subject ID / Test Pass (Optional)">
         <button onclick="window.startExperiment()">I Understand - Start Game</button>
+    </div>
+
+    <div id="survey-screen" class="card" style="display: none;">
+        <h2>A few quick questions</h2>
+        <p>Before we begin, please provide the following information:</p>
+        
+        <div class="survey-group">
+            <label><strong>What age group are you in?</strong></label>
+            <select id="age-input" class="survey-select">
+                <option value="" disabled selected>Select your age group...</option>
+                <option value="<21">&lt;21</option>
+                <option value="22-30">22 - 30</option>
+                <option value="31-50">31 - 50</option>
+                <option value=">50">&gt;50</option>
+            </select>
+        </div>
+
+        <div class="survey-group">
+            <label><strong>What gender do you identify as?</strong></label>
+            <select id="gender-input" class="survey-select">
+                <option value="" disabled selected>Select your gender...</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Non-binary">Non-binary</option>
+                <option value="Other">Other</option>
+            </select>
+        </div>
+
+        <p id="survey-error">Please select an option for both questions to continue.</p>
+        <button onclick="window.submitSurvey()">Submit & Next</button>
+    </div>
+
+    <div id="reminder-screen" class="card" style="display: none;">
+        <h2>Quick Reminder</h2>
+        <ul>
+            <li>You will see two boxes with moving dots on the screen.</li>
+            <li>Tap or click the box you believe will give you a point.</li>
+            <li><strong>One motion direction will yield points more often than the other.</strong></li>
+            <li>This relationship stays exactly the same for the entire experiment.</li>
+        </ul>
+        <button onclick="window.startTask()">Begin Task</button>
     </div>
 
     <div id="main-ui" class="layout-wrapper" style="display: none;">
@@ -226,6 +292,8 @@
 
         // --- EXPERIMENT STATE ---
         let subjectId = '';
+        let participantAge = '';
+        let participantGender = '';
         let sessionStartTime = '';
         let trials = [];
         let currentTrialIndex = 0;
@@ -332,8 +400,7 @@
             try {
                 const querySnapshot = await getDocs(collection(db, "experiment_data"));
                 
-                // Set up the CSV Headers
-                let csvContent = "subject_id,lucky_direction,total_score,trial_number,coherence,top_direction,bottom_direction,chosen_box,rt_ms,reward_received\n";
+                let csvContent = "subject_id,age_group,gender,lucky_direction,total_score,trial_number,coherence,top_direction,bottom_direction,chosen_box,rt_ms,reward_received\n";
 
                 let participantCount = 0;
 
@@ -342,14 +409,15 @@
                     participantCount++;
                     
                     const subj = data.subject_id || "N/A";
+                    const age = data.age_group || "N/A";
+                    const gender = data.gender || "N/A";
                     const lucky = data.lucky_direction || "N/A";
                     const total = data.total_score || 0;
 
-                    // Flatten each trial into its own row
                     if (data.trials && Array.isArray(data.trials)) {
                         data.trials.forEach(t => {
                             let row = [
-                                subj, lucky, total,
+                                subj, age, gender, lucky, total,
                                 t.trial_number, t.coherence, t.top_direction, t.bottom_direction,
                                 t.chosen_box, t.rt_ms, t.reward_received
                             ];
@@ -358,7 +426,6 @@
                     }
                 });
 
-                // Create the downloadable file
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement("a");
                 const url = URL.createObjectURL(blob);
@@ -380,19 +447,17 @@
         window.startExperiment = function() {
             const passInput = document.getElementById('researcher-pass').value.trim().toLowerCase();
             
-            // ADMIN OVERRIDE: Download CSV directly
             if (passInput === 'export') {
                 downloadCSV();
-                return; // Stop the experiment from starting
+                return; 
             }
             
             const randomNum = Math.floor(Math.random() * 900) + 100; 
             
-            // Route the data based on the password
             if (passInput === 'cole') {
                 subjectId = 'test' + randomNum;
                 databaseCollection = "test_data"; 
-                console.log("TEST MODE ACTIVATED: Data routing to 'test_data'");
+                console.log("TEST MODE ACTIVATED");
             } else {
                 subjectId = 'sub' + randomNum;
                 databaseCollection = "experiment_data"; 
@@ -401,6 +466,32 @@
             sessionStartTime = new Date().toISOString();
 
             document.getElementById('instructions').style.display = 'none';
+            document.getElementById('survey-screen').style.display = 'block';
+        }
+
+        // --- SURVEY HANDLING ---
+        window.submitSurvey = function() {
+            const ageSelect = document.getElementById('age-input').value;
+            const genderSelect = document.getElementById('gender-input').value;
+            const errorMsg = document.getElementById('survey-error');
+
+            if (!ageSelect || !genderSelect) {
+                errorMsg.style.display = 'block';
+                return; 
+            }
+
+            errorMsg.style.display = 'none';
+            participantAge = ageSelect;
+            participantGender = genderSelect;
+
+            // Transition to the Reminder Screen
+            document.getElementById('survey-screen').style.display = 'none';
+            document.getElementById('reminder-screen').style.display = 'block';
+        }
+
+        // --- START TASK ---
+        window.startTask = function() {
+            document.getElementById('reminder-screen').style.display = 'none';
             document.getElementById('main-ui').style.display = 'flex';
             
             loadLeaderboard();
@@ -493,6 +584,8 @@
 
             const finalPayload = {
                 subject_id: subjectId,
+                age_group: participantAge,          
+                gender: participantGender,          
                 session_start: sessionStartTime,
                 session_end: new Date().toISOString(),
                 lucky_direction: luckyDirection,
