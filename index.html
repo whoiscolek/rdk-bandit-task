@@ -72,6 +72,21 @@
             background-color: #0052a3;
         }
 
+        .quit-btn {
+            background-color: transparent;
+            color: #888;
+            border: 1px solid #ccc;
+            padding: 8px 16px;
+            font-size: 14px;
+            margin-top: 40px;
+        }
+
+        .quit-btn:hover {
+            background-color: #ffe6e6;
+            color: #dc3545;
+            border-color: #dc3545;
+        }
+
         .layout-wrapper {
             display: flex;
             flex-direction: row;
@@ -119,11 +134,10 @@
             align-items: center;
         }
 
-        /* Removed the fake CSS circle. The math handles it now. */
         canvas {
             background-color: #111111; 
             cursor: pointer;
-            border-radius: 50%; /* Kept only for the black background shape */
+            border-radius: 50%; 
             box-shadow: 0 10px 30px rgba(0,0,0,0.4); 
             transition: transform 0.1s ease;
             width: 350px;
@@ -238,13 +252,14 @@
             <div id="task-area" class="rdk-container">
                 <canvas id="topCanvas" width="350" height="350" onclick="window.makeChoice('top')"></canvas>
                 <canvas id="bottomCanvas" width="350" height="350" onclick="window.makeChoice('bottom')"></canvas>
+                <button class="quit-btn" onclick="window.quitEarly()">Save & Exit Early</button>
             </div>
             <div id="feedback" class="card" style="display: none; width: 100%;">
                 <h1 id="feedback-text" class="feedback-text"></h1>
                 <p id="running-score" class="score-text"></p>
             </div>
             <div id="end-screen" class="card" style="display: none; width: 100%;">
-                <h2>Experiment Complete!</h2>
+                <h2 id="end-title">Experiment Complete!</h2>
                 <p>Thank you for participating.</p>
                 <h1 id="final-score" style="color: #0066cc;"></h1>
                 <p id="save-status"><em>Saving your data securely...</em></p>
@@ -281,12 +296,12 @@
         const totalTrials = 100;
         const coherences = [0.05, 0.15, 0.25, 0.35]; 
         const dotsPerBox = 200;
-        const dotRadius = 2; // Clean, visible dots
-        const dx = 5; // Step size per update
+        const dotRadius = 2; 
+        const dx = 5; 
         const itiDuration = 2000; 
 
         // RDK Geometry Constants
-        const apertureRadius = 175; // Half of 350px canvas
+        const apertureRadius = 175; 
         const centerX = 175;
         const centerY = 175;
 
@@ -304,6 +319,7 @@
         let animationFrameId;
         let globalFrameCount = 0; 
         let databaseCollection = "experiment_data"; 
+        let isSaving = false; // Flag to prevent double-saving
 
         // --- GENERATE TRIALS ---
         for (let i = 0; i < coherences.length; i++) {
@@ -314,7 +330,6 @@
         trials.sort(() => Math.random() - 0.5);
 
         // --- TRUE CIRCULAR MATH HELPER ---
-        // Generates a random coordinate strictly inside a circle
         function getRandomDotInCircle() {
             let r = apertureRadius * Math.sqrt(Math.random());
             let theta = Math.random() * 2 * Math.PI;
@@ -332,11 +347,7 @@
             let dots = [];
             for (let i = 0; i < dotsPerBox; i++) {
                 let pos = getRandomDotInCircle();
-                dots.push({ 
-                    x: pos.x, 
-                    y: pos.y, 
-                    set: i % 3 // Assigns dot to 1 of 3 interleaved frames
-                });
+                dots.push({ x: pos.x, y: pos.y, set: i % 3 });
             }
             return dots;
         }
@@ -350,42 +361,34 @@
             let activeSet = globalFrameCount % 3;
 
             dots.forEach(dot => {
-                // Only move dots belonging to the active frame (classic 3-interleaved method)
                 if (dot.set === activeSet) {
                     let isSignal = Math.random() < coherence;
                     
                     if (isSignal) {
-                        // Move straight left or right
                         dot.x += (targetDirection === 'right') ? dx : -dx;
-                        
-                        // Circle Boundary Check: If it leaves the circle, wrap it to the opposite side
                         let distFromCenter = Math.sqrt(Math.pow(dot.x - centerX, 2) + Math.pow(dot.y - centerY, 2));
                         if (distFromCenter > apertureRadius) {
-                            // Find the chord length at this Y position
                             let dy = dot.y - centerY;
                             let chordHalfLength = Math.sqrt(Math.pow(apertureRadius, 2) - Math.pow(dy, 2));
                             if (targetDirection === 'right') {
-                                dot.x = centerX - chordHalfLength; // Wrap to left edge
+                                dot.x = centerX - chordHalfLength; 
                             } else {
-                                dot.x = centerX + chordHalfLength; // Wrap to right edge
+                                dot.x = centerX + chordHalfLength; 
                             }
                         }
                     } else {
-                        // WHITE NOISE: Teleport to a completely new random location INSIDE the circle
                         let newPos = getRandomDotInCircle();
                         dot.x = newPos.x;
                         dot.y = newPos.y;
                     }
                 }
                 
-                // Draw all dots (moving or paused) every frame
                 ctx.beginPath();
                 ctx.arc(dot.x, dot.y, dotRadius, 0, Math.PI * 2);
                 ctx.fill();
             });
         }
 
-        // Buttery Smooth Interleaved Rendering
         function animate() {
             globalFrameCount++;
             updateAndDrawRDK('topCanvas', topDots, currentTopDir, currentCoherence);
@@ -396,6 +399,7 @@
         // --- FETCH LEADERBOARD ---
         async function loadLeaderboard() {
             try {
+                // The leaderboard ONLY checks pristine 100-trial data
                 const querySnapshot = await getDocs(collection(db, "experiment_data"));
                 let validScores = [];
                 
@@ -433,6 +437,7 @@
             instructionsDiv.innerHTML = "<h2>Fetching Data...</h2><p>Please wait while we generate your CSV.</p>";
             
             try {
+                // The exporter ONLY checks pristine 100-trial data
                 const querySnapshot = await getDocs(collection(db, "experiment_data"));
                 
                 let csvContent = "subject_id,age_group,gender,lucky_direction,total_score,trial_number,coherence,top_direction,bottom_direction,chosen_box,rt_ms,reward_received\n";
@@ -492,7 +497,6 @@
             if (passInput === 'cole') {
                 subjectId = 'test' + randomNum;
                 databaseCollection = "test_data"; 
-                console.log("TEST MODE ACTIVATED");
             } else {
                 subjectId = 'sub' + randomNum;
                 databaseCollection = "experiment_data"; 
@@ -532,7 +536,7 @@
 
         function runTrial() {
             if (currentTrialIndex >= totalTrials) {
-                endExperiment();
+                finalizeData(true); // Flag: true = 100% completed
                 return;
             }
 
@@ -609,11 +613,36 @@
             scoreText.innerText = `Trial ${currentTrialIndex + 1} / 100`;
         }
 
-        async function endExperiment() {
+        // --- DATA SAVING LOGIC (Complete & Incomplete) ---
+        window.quitEarly = function() {
+            if(confirm("Are you sure you want to exit early? Your current progress will be saved.")) {
+                finalizeData(false); // Flag: false = quit early
+            }
+        }
+
+        async function finalizeData(completedAll) {
+            if (isSaving) return; // Prevent saving twice
+            isSaving = true;
+
+            cancelAnimationFrame(animationFrameId);
+
             document.getElementById('task-area').style.display = 'none';
             document.getElementById('feedback').style.display = 'none';
             document.getElementById('end-screen').style.display = 'block';
-            document.getElementById('final-score').innerText = `${totalScore} / 100`;
+            
+            if (completedAll) {
+                document.getElementById('end-title').innerText = "Experiment Complete!";
+                document.getElementById('final-score').innerText = `${totalScore} / 100`;
+            } else {
+                document.getElementById('end-title').innerText = "Experiment Terminated";
+                document.getElementById('final-score').innerText = `Partial Score: ${totalScore} / ${currentTrialIndex}`;
+            }
+
+            // Route to proper folder based on completion status
+            let targetFolder = databaseCollection;
+            if (!completedAll) {
+                targetFolder = databaseCollection + "_incomplete";
+            }
 
             const finalPayload = {
                 subject_id: subjectId,
@@ -623,14 +652,16 @@
                 session_end: new Date().toISOString(),
                 lucky_direction: luckyDirection,
                 total_score: totalScore,
+                trials_completed: currentTrialIndex,
                 trials: participantData
             };
 
             try {
-                await addDoc(collection(db, databaseCollection), finalPayload);
+                await addDoc(collection(db, targetFolder), finalPayload);
                 document.getElementById('save-status').innerHTML = "<strong>Data successfully saved.</strong> You may close this window.";
                 
-                if(databaseCollection === "experiment_data") {
+                // Only update leaderboard if they completely finished a real run
+                if(targetFolder === "experiment_data") {
                     loadLeaderboard(); 
                 }
             } catch (e) {
@@ -638,6 +669,27 @@
                 document.getElementById('save-status').innerHTML = "<strong style='color:red;'>Error saving data.</strong>";
             }
         }
+
+        // EMERGENCY TAB-CLOSE SAFETY NET
+        window.addEventListener('pagehide', () => {
+            if (participantData.length > 0 && !isSaving) {
+                const finalPayload = {
+                    subject_id: subjectId,
+                    age_group: participantAge,          
+                    gender: participantGender,          
+                    session_start: sessionStartTime,
+                    session_end: new Date().toISOString(),
+                    lucky_direction: luckyDirection,
+                    total_score: totalScore,
+                    trials_completed: currentTrialIndex,
+                    abandoned_tab: true,
+                    trials: participantData
+                };
+                // Fire-and-forget sync save to the incomplete folder
+                addDoc(collection(db, databaseCollection + "_incomplete"), finalPayload);
+            }
+        });
+
     </script>
 </body>
 </html>
