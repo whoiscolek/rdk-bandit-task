@@ -293,7 +293,6 @@
         const db = getFirestore(app);
 
         // --- EXPERIMENT PARAMETERS ---
-        const totalTrials = 100;
         const coherences = [0.05, 0.15, 0.25, 0.35]; 
         const dotsPerBox = 200;
         const dotRadius = 2; 
@@ -306,6 +305,7 @@
         const centerY = 175;
 
         // --- EXPERIMENT STATE ---
+        let totalTrials = 100; // Defaults to 100, but can be altered by passwords
         let subjectId = '';
         let participantAge = '';
         let participantGender = '';
@@ -319,15 +319,7 @@
         let animationFrameId;
         let globalFrameCount = 0; 
         let databaseCollection = "experiment_data"; 
-        let isSaving = false; // Flag to prevent double-saving
-
-        // --- GENERATE TRIALS ---
-        for (let i = 0; i < coherences.length; i++) {
-            for (let j = 0; j < 25; j++) {
-                trials.push({ coherence: coherences[i] });
-            }
-        }
-        trials.sort(() => Math.random() - 0.5);
+        let isSaving = false; 
 
         // --- TRUE CIRCULAR MATH HELPER ---
         function getRandomDotInCircle() {
@@ -399,7 +391,6 @@
         // --- FETCH LEADERBOARD ---
         async function loadLeaderboard() {
             try {
-                // The leaderboard ONLY checks pristine 100-trial data
                 const querySnapshot = await getDocs(collection(db, "experiment_data"));
                 let validScores = [];
                 
@@ -431,23 +422,19 @@
             }
         }
 
-        // --- ADMIN: DOWNLOAD CSV ---
+        // --- ADMIN: DOWNLOAD MAIN CSV ---
         async function downloadCSV() {
             const instructionsDiv = document.getElementById('instructions');
             instructionsDiv.innerHTML = "<h2>Fetching Data...</h2><p>Please wait while we generate your CSV.</p>";
             
             try {
-                // The exporter ONLY checks pristine 100-trial data
                 const querySnapshot = await getDocs(collection(db, "experiment_data"));
-                
                 let csvContent = "subject_id,age_group,gender,lucky_direction,total_score,trial_number,coherence,top_direction,bottom_direction,chosen_box,rt_ms,reward_received\n";
-
                 let participantCount = 0;
 
                 querySnapshot.forEach((doc) => {
                     const data = doc.data();
                     participantCount++;
-                    
                     const subj = data.subject_id || "N/A";
                     const age = data.age_group || "N/A";
                     const gender = data.gender || "N/A";
@@ -483,25 +470,118 @@
             }
         }
 
+        // --- ADMIN: DOWNLOAD PROFESSOR DEMO DATA ONLY ---
+        async function downloadProfCSV() {
+            const instructionsDiv = document.getElementById('instructions');
+            instructionsDiv.innerHTML = "<h2>Fetching Professor Data...</h2><p>Please wait while we locate the most recent test.</p>";
+
+            try {
+                const querySnapshot = await getDocs(collection(db, "prof_data"));
+                let allProfDocs = [];
+
+                querySnapshot.forEach((doc) => {
+                    allProfDocs.push(doc.data());
+                });
+
+                if (allProfDocs.length === 0) {
+                    instructionsDiv.innerHTML = "<h2>No Data Found</h2><p>No one has completed the 'ali' test yet.</p><p>Refresh the page to go back.</p>";
+                    return;
+                }
+
+                // Sort all documents by the session start time, descending (newest first)
+                allProfDocs.sort((a, b) => new Date(b.session_start) - new Date(a.session_start));
+                const latestData = allProfDocs[0];
+
+                let csvContent = "subject_id,age_group,gender,lucky_direction,total_score,trial_number,coherence,top_direction,bottom_direction,chosen_box,rt_ms,reward_received\n";
+
+                const subj = latestData.subject_id || "N/A";
+                const age = latestData.age_group || "N/A";
+                const gender = latestData.gender || "N/A";
+                const lucky = latestData.lucky_direction || "N/A";
+                const total = latestData.total_score || 0;
+
+                if (latestData.trials && Array.isArray(latestData.trials)) {
+                    latestData.trials.forEach(t => {
+                        let row = [
+                            subj, age, gender, lucky, total,
+                            t.trial_number, t.coherence, t.top_direction, t.bottom_direction,
+                            t.chosen_box, t.rt_ms, t.reward_received
+                        ];
+                        csvContent += row.join(",") + "\n";
+                    });
+                }
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", `prof_demo_data_${subj}.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                instructionsDiv.innerHTML = `<h2>Success!</h2><p>Downloaded data for Demo Subject: ${subj}.</p><p>Refresh the page to return to the start screen.</p>`;
+            } catch (e) {
+                console.error("Error downloading CSV:", e);
+                instructionsDiv.innerHTML = "<h2>Error</h2><p>Could not download data. Check the console for details.</p>";
+            }
+        }
+
+
         // --- FLOW CONTROL ---
         window.startExperiment = function() {
             const passInput = document.getElementById('researcher-pass').value.trim().toLowerCase();
             
+            // Check for export passwords first
             if (passInput === 'export') {
                 downloadCSV();
                 return; 
             }
-            
-            const randomNum = Math.floor(Math.random() * 900) + 100; 
-            
-            if (passInput === 'cole') {
-                subjectId = 'test' + randomNum;
-                databaseCollection = "test_data"; 
-            } else {
-                subjectId = 'sub' + randomNum;
-                databaseCollection = "experiment_data"; 
+            if (passInput === 'mohebi') {
+                downloadProfCSV();
+                return;
             }
             
+            const randomNum = Math.floor(Math.random() * 900) + 100; 
+            trials = []; // Reset trials array
+            
+            // Determine Subject Routing & Trial Setup
+            if (passInput === 'ali') {
+                subjectId = 'prof_' + randomNum;
+                databaseCollection = "prof_data"; 
+                totalTrials = 10;
+                // Hardcode the 10 specific trials requested
+                const profCoherences = [0.05, 0.05, 0.05, 0.15, 0.15, 0.25, 0.25, 0.25, 0.35, 0.35];
+                profCoherences.forEach(c => trials.push({ coherence: c }));
+                console.log("PROFESSOR DEMO MODE ACTIVATED");
+                
+            } else if (passInput === 'cole') {
+                subjectId = 'test' + randomNum;
+                databaseCollection = "test_data"; 
+                totalTrials = 100;
+                for (let i = 0; i < coherences.length; i++) {
+                    for (let j = 0; j < 25; j++) {
+                        trials.push({ coherence: coherences[i] });
+                    }
+                }
+                console.log("STANDARD TEST MODE ACTIVATED");
+                
+            } else {
+                // Normal User
+                subjectId = 'sub' + randomNum;
+                databaseCollection = "experiment_data"; 
+                totalTrials = 100;
+                for (let i = 0; i < coherences.length; i++) {
+                    for (let j = 0; j < 25; j++) {
+                        trials.push({ coherence: coherences[i] });
+                    }
+                }
+            }
+            
+            // Shuffle the generated trials
+            trials.sort(() => Math.random() - 0.5);
+
             sessionStartTime = new Date().toISOString();
 
             document.getElementById('instructions').style.display = 'none';
@@ -536,7 +616,7 @@
 
         function runTrial() {
             if (currentTrialIndex >= totalTrials) {
-                finalizeData(true); // Flag: true = 100% completed
+                finalizeData(true); 
                 return;
             }
 
@@ -610,18 +690,18 @@
                 fbText.innerText = "0 Points";
                 fbText.style.color = "#dc3545"; 
             }
-            scoreText.innerText = `Trial ${currentTrialIndex + 1} / 100`;
+            scoreText.innerText = `Trial ${currentTrialIndex + 1} / ${totalTrials}`; // Dynamically shows /10 or /100
         }
 
         // --- DATA SAVING LOGIC (Complete & Incomplete) ---
         window.quitEarly = function() {
             if(confirm("Are you sure you want to exit early? Your current progress will be saved.")) {
-                finalizeData(false); // Flag: false = quit early
+                finalizeData(false); 
             }
         }
 
         async function finalizeData(completedAll) {
-            if (isSaving) return; // Prevent saving twice
+            if (isSaving) return; 
             isSaving = true;
 
             cancelAnimationFrame(animationFrameId);
@@ -632,7 +712,7 @@
             
             if (completedAll) {
                 document.getElementById('end-title').innerText = "Experiment Complete!";
-                document.getElementById('final-score').innerText = `${totalScore} / 100`;
+                document.getElementById('final-score').innerText = `${totalScore} / ${totalTrials}`;
             } else {
                 document.getElementById('end-title').innerText = "Experiment Terminated";
                 document.getElementById('final-score').innerText = `Partial Score: ${totalScore} / ${currentTrialIndex}`;
@@ -660,7 +740,7 @@
                 await addDoc(collection(db, targetFolder), finalPayload);
                 document.getElementById('save-status').innerHTML = "<strong>Data successfully saved.</strong> You may close this window.";
                 
-                // Only update leaderboard if they completely finished a real run
+                // Only update leaderboard if they completely finished a real 100-trial run
                 if(targetFolder === "experiment_data") {
                     loadLeaderboard(); 
                 }
