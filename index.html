@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visual Motion Decision Task</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             margin: 0;
@@ -28,6 +29,7 @@
             text-align: center;
             line-height: 1.6;
             box-sizing: border-box;
+            width: 100%;
         }
 
         h2, h3 {
@@ -134,7 +136,7 @@
             align-items: center;
         }
 
-        canvas {
+        canvas.rdk-canvas {
             background-color: #111111; 
             cursor: pointer;
             border-radius: 50%; 
@@ -146,7 +148,7 @@
             min-height: 350px;
         }
 
-        canvas:active {
+        canvas.rdk-canvas:active {
             transform: scale(0.98); 
         }
 
@@ -250,20 +252,26 @@
     <div id="main-ui" class="layout-wrapper" style="display: none;">
         <div class="left-col">
             <div id="task-area" class="rdk-container">
-                <canvas id="topCanvas" width="350" height="350" onclick="window.makeChoice('top')"></canvas>
-                <canvas id="bottomCanvas" width="350" height="350" onclick="window.makeChoice('bottom')"></canvas>
+                <canvas id="topCanvas" class="rdk-canvas" width="350" height="350" onclick="window.makeChoice('top')"></canvas>
+                <canvas id="bottomCanvas" class="rdk-canvas" width="350" height="350" onclick="window.makeChoice('bottom')"></canvas>
                 <button class="quit-btn" onclick="window.quitEarly()">Save & Exit Early</button>
             </div>
             <div id="feedback" class="card" style="display: none; width: 100%;">
                 <h1 id="feedback-text" class="feedback-text"></h1>
                 <p id="running-score" class="score-text"></p>
             </div>
-            <div id="end-screen" class="card" style="display: none; width: 100%;">
+            
+            <div id="end-screen" class="card" style="display: none; width: 100%; max-width: 800px;">
                 <h2 id="end-title">Experiment Complete!</h2>
                 <p>Thank you for participating.</p>
                 <h1 id="final-score" style="color: #0066cc;"></h1>
                 <p id="save-status"><em>Saving your data securely...</em></p>
+                
+                <div id="chart-container" style="position: relative; height:300px; width:100%; margin-top:30px; display:none;">
+                    <canvas id="rtChart"></canvas>
+                </div>
             </div>
+            
         </div>
         <div class="right-col card">
             <h3>Live Leaderboard</h3>
@@ -296,8 +304,8 @@
         const coherences = [0.05, 0.15, 0.25, 0.35]; 
         const dotsPerBox = 200;
         const dotRadius = 2; 
-        const dx = 4.5; // Optimized speed
-        const dotLifespanFrames = 15; // Dots die and respawn after ~250ms to prevent tracking
+        const dx = 4.5; 
+        const dotLifespanFrames = 15; 
         const itiDuration = 2000; 
 
         // RDK Geometry Constants
@@ -344,7 +352,7 @@
                     x: pos.x, 
                     y: pos.y, 
                     set: i % 3, 
-                    age: Math.floor(Math.random() * dotLifespanFrames) // Randomize initial age
+                    age: Math.floor(Math.random() * dotLifespanFrames) 
                 });
             }
             return dots;
@@ -363,7 +371,6 @@
                     let isSignal = Math.random() < coherence;
                     dot.age += 1;
 
-                    // If dot exceeds lifespan, respawn it to prevent tracking
                     if (dot.age > dotLifespanFrames) {
                         let newPos = getRandomDotInCircle();
                         dot.x = newPos.x;
@@ -373,13 +380,11 @@
                         if (isSignal) {
                             dot.x += (targetDirection === 'right') ? dx : -dx;
                         } else {
-                            // TRUE BROWNIAN NOISE: Step randomly, but EXACTLY distance dx
                             let randomAngle = Math.random() * Math.PI * 2;
                             dot.x += Math.cos(randomAngle) * dx;
                             dot.y += Math.sin(randomAngle) * dx;
                         }
 
-                        // Boundary Check: Keep inside circle
                         let distFromCenter = Math.sqrt(Math.pow(dot.x - centerX, 2) + Math.pow(dot.y - centerY, 2));
                         if (distFromCenter > apertureRadius) {
                             let newPos = getRandomDotInCircle();
@@ -435,6 +440,86 @@
                 console.error("Leaderboard error:", e);
                 document.getElementById('lb-content').innerHTML = "<p>Leaderboard offline.</p>";
             }
+        }
+
+        // --- CHART GENERATION (RUBRIC PHASE 4) ---
+        async function renderRTHistogram(targetFolder, currentUserData) {
+            if (currentUserData.length === 0) return;
+            
+            document.getElementById('chart-container').style.display = 'block';
+
+            // 1. Calculate current participant's average RT
+            let userAvg = currentUserData.reduce((sum, t) => sum + t.rt_ms, 0) / currentUserData.length;
+
+            // 2. Fetch all historical Reaction Times
+            let allRTs = [];
+            try {
+                const querySnapshot = await getDocs(collection(db, targetFolder));
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.trials && Array.isArray(data.trials)) {
+                        data.trials.forEach(t => {
+                            if (t.rt_ms) allRTs.push(t.rt_ms);
+                        });
+                    }
+                });
+            } catch(e) {
+                console.error("Error fetching for chart", e);
+                return;
+            }
+
+            // 3. Bin the data into a histogram (250ms bins)
+            const binSize = 250;
+            const maxBin = 3000;
+            let bins = Array((maxBin/binSize) + 1).fill(0);
+            let labels = [];
+            for(let i=0; i<=maxBin; i+=binSize) {
+                labels.push(`${i}-${i+binSize}ms`);
+            }
+            labels[labels.length-1] = `${maxBin}+ ms`;
+
+            allRTs.forEach(rt => {
+                let index = Math.floor(rt / binSize);
+                if (index >= bins.length) index = bins.length - 1;
+                bins[index]++;
+            });
+
+            // 4. Find which bin the user belongs to (for highlighting)
+            let userIndex = Math.floor(userAvg / binSize);
+            if (userIndex >= bins.length) userIndex = bins.length - 1;
+
+            let backgroundColors = bins.map((_, i) => i === userIndex ? '#ffc107' : '#0066cc');
+
+            // 5. Draw Chart.js Histogram
+            const ctx = document.getElementById('rtChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Total Number of Responses',
+                        data: bins,
+                        backgroundColor: backgroundColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Frequency (Total Trials)' } },
+                        x: { title: { display: true, text: 'Reaction Time (ms)' } }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `Your Average Reaction Time: ${Math.round(userAvg)} ms (Highlighted in Yellow)`,
+                            font: { size: 16 }
+                        },
+                        legend: { display: false }
+                    }
+                }
+            });
         }
 
         // --- ADMIN: DOWNLOAD MAIN CSV ---
@@ -559,21 +644,18 @@
             const randomNum = Math.floor(Math.random() * 900) + 100; 
             trials = []; 
             
-            // Determine Subject Routing & Perfectly Balanced Trial Setup
             if (passInput === 'ali') {
                 subjectId = 'prof_' + randomNum;
                 databaseCollection = "prof_data"; 
                 totalTrials = 10;
                 
                 const profCoherences = [0.05, 0.05, 0.05, 0.15, 0.15, 0.25, 0.25, 0.25, 0.35, 0.35];
-                // Force perfectly balanced Top directions
                 profCoherences.forEach((c, index) => {
                     trials.push({
                         coherence: c,
-                        topDir: (index % 2 === 0) ? 'left' : 'right' // Exactly 5 left, 5 right
+                        topDir: (index % 2 === 0) ? 'left' : 'right' 
                     });
                 });
-                console.log("PROFESSOR DEMO MODE ACTIVATED");
                 
             } else if (passInput === 'cole') {
                 subjectId = 'test' + randomNum;
@@ -583,28 +665,29 @@
                     for (let j = 0; j < 25; j++) {
                         trials.push({ 
                             coherence: coherences[i],
-                            topDir: (j % 2 === 0) ? 'left' : 'right' // Exactly 50 left, 50 right
+                            topDir: (j % 2 === 0) ? 'left' : 'right' 
                         });
                     }
                 }
-                console.log("STANDARD TEST MODE ACTIVATED");
                 
             } else {
-                // Normal User
                 subjectId = 'sub' + randomNum;
+                // If they leave ID blank, the rubric specifies we auto-generate it (which we already do!)
+                if(passInput !== "") {
+                    subjectId = passInput; 
+                }
                 databaseCollection = "experiment_data"; 
                 totalTrials = 100;
                 for (let i = 0; i < coherences.length; i++) {
                     for (let j = 0; j < 25; j++) {
                         trials.push({ 
                             coherence: coherences[i],
-                            topDir: (j % 2 === 0) ? 'left' : 'right' // Exactly 50 left, 50 right
+                            topDir: (j % 2 === 0) ? 'left' : 'right' 
                         });
                     }
                 }
             }
             
-            // Shuffle the generated array to randomize the order
             trials.sort(() => Math.random() - 0.5);
 
             sessionStartTime = new Date().toISOString();
@@ -647,7 +730,6 @@
 
             currentCoherence = trials[currentTrialIndex].coherence;
             
-            // Pull the pre-balanced direction instead of flipping a coin
             currentTopDir = trials[currentTrialIndex].topDir;
             currentBottomDir = (currentTopDir === 'left') ? 'right' : 'left';
 
@@ -756,12 +838,18 @@
             };
 
             try {
-                await addDoc(collection(db, targetFolder), finalPayload);
-                document.getElementById('save-status').innerHTML = "<strong>Data successfully saved.</strong> You may close this window.";
+                document.getElementById('save-status').innerHTML = "<em>Saving data and generating historical chart...</em>";
                 
-                if(targetFolder === "experiment_data") {
+                await addDoc(collection(db, targetFolder), finalPayload);
+                
+                if(targetFolder === "experiment_data" || targetFolder === "prof_data") {
                     loadLeaderboard(); 
                 }
+
+                // Render the Chart.js Histogram
+                await renderRTHistogram(targetFolder, participantData);
+                
+                document.getElementById('save-status').innerHTML = "<strong>Data successfully saved.</strong> You may close this window.";
             } catch (e) {
                 console.error("Error saving to database:", e);
                 document.getElementById('save-status').innerHTML = "<strong style='color:red;'>Error saving data.</strong>";
