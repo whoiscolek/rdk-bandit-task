@@ -296,7 +296,8 @@
         const coherences = [0.05, 0.15, 0.25, 0.35]; 
         const dotsPerBox = 200;
         const dotRadius = 2; 
-        const dx = 5; 
+        const dx = 4.5; // Optimized speed
+        const dotLifespanFrames = 15; // Dots die and respawn after ~250ms to prevent tracking
         const itiDuration = 2000; 
 
         // RDK Geometry Constants
@@ -305,7 +306,7 @@
         const centerY = 175;
 
         // --- EXPERIMENT STATE ---
-        let totalTrials = 100; // Defaults to 100, but can be altered by passwords
+        let totalTrials = 100; 
         let subjectId = '';
         let participantAge = '';
         let participantGender = '';
@@ -339,7 +340,12 @@
             let dots = [];
             for (let i = 0; i < dotsPerBox; i++) {
                 let pos = getRandomDotInCircle();
-                dots.push({ x: pos.x, y: pos.y, set: i % 3 });
+                dots.push({ 
+                    x: pos.x, 
+                    y: pos.y, 
+                    set: i % 3, 
+                    age: Math.floor(Math.random() * dotLifespanFrames) // Randomize initial age
+                });
             }
             return dots;
         }
@@ -355,23 +361,32 @@
             dots.forEach(dot => {
                 if (dot.set === activeSet) {
                     let isSignal = Math.random() < coherence;
-                    
-                    if (isSignal) {
-                        dot.x += (targetDirection === 'right') ? dx : -dx;
-                        let distFromCenter = Math.sqrt(Math.pow(dot.x - centerX, 2) + Math.pow(dot.y - centerY, 2));
-                        if (distFromCenter > apertureRadius) {
-                            let dy = dot.y - centerY;
-                            let chordHalfLength = Math.sqrt(Math.pow(apertureRadius, 2) - Math.pow(dy, 2));
-                            if (targetDirection === 'right') {
-                                dot.x = centerX - chordHalfLength; 
-                            } else {
-                                dot.x = centerX + chordHalfLength; 
-                            }
-                        }
-                    } else {
+                    dot.age += 1;
+
+                    // If dot exceeds lifespan, respawn it to prevent tracking
+                    if (dot.age > dotLifespanFrames) {
                         let newPos = getRandomDotInCircle();
                         dot.x = newPos.x;
                         dot.y = newPos.y;
+                        dot.age = 0;
+                    } else {
+                        if (isSignal) {
+                            dot.x += (targetDirection === 'right') ? dx : -dx;
+                        } else {
+                            // TRUE BROWNIAN NOISE: Step randomly, but EXACTLY distance dx
+                            let randomAngle = Math.random() * Math.PI * 2;
+                            dot.x += Math.cos(randomAngle) * dx;
+                            dot.y += Math.sin(randomAngle) * dx;
+                        }
+
+                        // Boundary Check: Keep inside circle
+                        let distFromCenter = Math.sqrt(Math.pow(dot.x - centerX, 2) + Math.pow(dot.y - centerY, 2));
+                        if (distFromCenter > apertureRadius) {
+                            let newPos = getRandomDotInCircle();
+                            dot.x = newPos.x;
+                            dot.y = newPos.y;
+                            dot.age = 0;
+                        }
                     }
                 }
                 
@@ -488,7 +503,6 @@
                     return;
                 }
 
-                // Sort all documents by the session start time, descending (newest first)
                 allProfDocs.sort((a, b) => new Date(b.session_start) - new Date(a.session_start));
                 const latestData = allProfDocs[0];
 
@@ -533,7 +547,6 @@
         window.startExperiment = function() {
             const passInput = document.getElementById('researcher-pass').value.trim().toLowerCase();
             
-            // Check for export passwords first
             if (passInput === 'export') {
                 downloadCSV();
                 return; 
@@ -544,16 +557,22 @@
             }
             
             const randomNum = Math.floor(Math.random() * 900) + 100; 
-            trials = []; // Reset trials array
+            trials = []; 
             
-            // Determine Subject Routing & Trial Setup
+            // Determine Subject Routing & Perfectly Balanced Trial Setup
             if (passInput === 'ali') {
                 subjectId = 'prof_' + randomNum;
                 databaseCollection = "prof_data"; 
                 totalTrials = 10;
-                // Hardcode the 10 specific trials requested
+                
                 const profCoherences = [0.05, 0.05, 0.05, 0.15, 0.15, 0.25, 0.25, 0.25, 0.35, 0.35];
-                profCoherences.forEach(c => trials.push({ coherence: c }));
+                // Force perfectly balanced Top directions
+                profCoherences.forEach((c, index) => {
+                    trials.push({
+                        coherence: c,
+                        topDir: (index % 2 === 0) ? 'left' : 'right' // Exactly 5 left, 5 right
+                    });
+                });
                 console.log("PROFESSOR DEMO MODE ACTIVATED");
                 
             } else if (passInput === 'cole') {
@@ -562,7 +581,10 @@
                 totalTrials = 100;
                 for (let i = 0; i < coherences.length; i++) {
                     for (let j = 0; j < 25; j++) {
-                        trials.push({ coherence: coherences[i] });
+                        trials.push({ 
+                            coherence: coherences[i],
+                            topDir: (j % 2 === 0) ? 'left' : 'right' // Exactly 50 left, 50 right
+                        });
                     }
                 }
                 console.log("STANDARD TEST MODE ACTIVATED");
@@ -574,12 +596,15 @@
                 totalTrials = 100;
                 for (let i = 0; i < coherences.length; i++) {
                     for (let j = 0; j < 25; j++) {
-                        trials.push({ coherence: coherences[i] });
+                        trials.push({ 
+                            coherence: coherences[i],
+                            topDir: (j % 2 === 0) ? 'left' : 'right' // Exactly 50 left, 50 right
+                        });
                     }
                 }
             }
             
-            // Shuffle the generated trials
+            // Shuffle the generated array to randomize the order
             trials.sort(() => Math.random() - 0.5);
 
             sessionStartTime = new Date().toISOString();
@@ -622,13 +647,9 @@
 
             currentCoherence = trials[currentTrialIndex].coherence;
             
-            if (Math.random() > 0.5) {
-                currentTopDir = 'left';
-                currentBottomDir = 'right';
-            } else {
-                currentTopDir = 'right';
-                currentBottomDir = 'left';
-            }
+            // Pull the pre-balanced direction instead of flipping a coin
+            currentTopDir = trials[currentTrialIndex].topDir;
+            currentBottomDir = (currentTopDir === 'left') ? 'right' : 'left';
 
             topDots = initDots();
             bottomDots = initDots();
@@ -690,10 +711,9 @@
                 fbText.innerText = "0 Points";
                 fbText.style.color = "#dc3545"; 
             }
-            scoreText.innerText = `Trial ${currentTrialIndex + 1} / ${totalTrials}`; // Dynamically shows /10 or /100
+            scoreText.innerText = `Trial ${currentTrialIndex + 1} / ${totalTrials}`; 
         }
 
-        // --- DATA SAVING LOGIC (Complete & Incomplete) ---
         window.quitEarly = function() {
             if(confirm("Are you sure you want to exit early? Your current progress will be saved.")) {
                 finalizeData(false); 
@@ -718,7 +738,6 @@
                 document.getElementById('final-score').innerText = `Partial Score: ${totalScore} / ${currentTrialIndex}`;
             }
 
-            // Route to proper folder based on completion status
             let targetFolder = databaseCollection;
             if (!completedAll) {
                 targetFolder = databaseCollection + "_incomplete";
@@ -740,7 +759,6 @@
                 await addDoc(collection(db, targetFolder), finalPayload);
                 document.getElementById('save-status').innerHTML = "<strong>Data successfully saved.</strong> You may close this window.";
                 
-                // Only update leaderboard if they completely finished a real 100-trial run
                 if(targetFolder === "experiment_data") {
                     loadLeaderboard(); 
                 }
@@ -750,7 +768,6 @@
             }
         }
 
-        // EMERGENCY TAB-CLOSE SAFETY NET
         window.addEventListener('pagehide', () => {
             if (participantData.length > 0 && !isSaving) {
                 const finalPayload = {
@@ -765,7 +782,6 @@
                     abandoned_tab: true,
                     trials: participantData
                 };
-                // Fire-and-forget sync save to the incomplete folder
                 addDoc(collection(db, databaseCollection + "_incomplete"), finalPayload);
             }
         });
